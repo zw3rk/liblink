@@ -1,7 +1,3 @@
-//
-// Created by Moritz Angermann on 3/29/17.
-//
-
 #include <malloc.h>
 #include <stdlib.h>
 #include <dlfcn.h>

@@ -1,7 +1,3 @@
-//
-// Created by Moritz Angermann on 4/1/17.
-//
-
 #ifndef LINK_DEBUG_H
 #define LINK_DEBUG_H
 

@@ -1,7 +1,3 @@
-//
-// Created by Moritz Angermann on 4/3/17.
-//
-
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>

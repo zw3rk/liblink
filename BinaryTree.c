@@ -1,11 +1,3 @@
-//
-//  BinaryTree.c
-//  mach-o
-//
-//  Created by Moritz Angermann on 2/25/17.
-//  Copyright © 2017 Moritz Angermann. All rights reserved.
-//
-
 #include "BinaryTree.h"
 #include <stdlib.h>
 

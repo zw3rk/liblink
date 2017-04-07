@@ -1,7 +1,3 @@
-//
-// Created by Moritz Angermann on 3/30/17.
-//
-
 #ifndef LINK_GOT_H
 #define LINK_GOT_H
 

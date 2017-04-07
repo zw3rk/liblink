@@ -1,7 +1,3 @@
-//
-// Created by Moritz Angermann on 3/30/17.
-//
-
 #include "../Types.h"
 #include "plt/arm.h"
 #include "plt/arm64.h"

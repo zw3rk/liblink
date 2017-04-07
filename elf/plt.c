@@ -3,10 +3,6 @@
 #include <stdlib.h>
 #include <assert.h>
 #include "plt.h"
-#include "compat.h"
-#include "plt/arm.h"
-#include "plt/arm64.h"
-#include "target.h"
 
 #define _make_stub         ADD_SUFFIX(make_stub)
 #define need_stub_for_rel  ADD_SUFFIX(need_stub_for_rel)

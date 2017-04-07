@@ -1,7 +1,3 @@
-//
-// Created by Moritz Angermann on 4/2/17.
-//
-
 #include <stdlib.h>
 #include <assert.h>
 #include "arm64.h"

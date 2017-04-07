@@ -1,7 +1,3 @@
-//
-// Created by Moritz Angermann on 3/29/17.
-//
-
 #ifndef LINK_TESTS_H
 #define LINK_TESTS_H
 

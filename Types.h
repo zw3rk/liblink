@@ -1,7 +1,3 @@
-//
-// Created by Moritz Angermann on 3/29/17.
-//
-
 #ifndef LINK_TYPES_H
 #define LINK_TYPES_H
 

@@ -1,7 +1,3 @@
-//
-// Created by Moritz Angermann on 3/30/17.
-//
-
 #include <assert.h>
 #include <sys/mman.h>
 #include <errno.h>
