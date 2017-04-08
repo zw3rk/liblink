@@ -133,6 +133,103 @@ encodeAddend_arm(Section * section, ElfRel * rel, int32_t addened) {
     return EXIT_SUCCESS;
 }
 
+/**
+ * Compute the *new* addend for a relocation, given a pre-existing addend.
+ * @param section The section the relocation is in.
+ * @param rel     The Relocation struct.
+ * @param symbol  The target symbol.
+ * @param addend  The existing addend. Either explicit or implicit.
+ * @return The new computed addend.
+ */
+static int32_t
+compute_addend(Section * section, ElfRel * rel,
+               ElfSymbol * symbol, int32_t addend) {
+
+    assert(symbol != NULL);
+
+    /* Position where something is relocated */
+    addr_t P     = section->start + rel->r_offset;
+    /* Address of the symbol */
+    addr_t S     =  symbol->addr;
+    /* GOT slot for the symbol */
+    addr_t GOT_S = symbol->got_addr;
+
+    int32_t A = addend;
+
+    assert(S);
+    assert(P);
+
+    /* thumb mode? */
+    /* TODO: read thumb mode. We currently set it to off */
+    uint32_t T = 0;
+
+    unsigned type = ELF32_R_TYPE(rel->r_info);
+
+    switch(type) {
+        case ARM_NONE: /* not supported */
+        case ARM_PC24: /* type: deprecated, class: ARM, op: ((S + A) | T) - P */
+            abort();
+        case ARM_ABS32: /* type: static, class: data, op: (S + A) | T */
+            return (S + A) | T;
+        case ARM_REL32: /* type: static, class: data, op: ((S + A) | T) - P */
+        case ARM_PREL31:
+            return ((S + A) | T) - P;
+
+            // case ARM_LDR_PC_G0:
+            // case ARM_ABS16:
+            // case ARM_ABS12:
+            // case ARM_PLT32: /* deprecated */
+        case ARM_CALL:
+        case ARM_JUMP24: {
+            /* type: static, class: arm, op: ((S + A) | T) - P */
+            /* CALL *may* change to BLX when targeting Thumb        */
+            /* JUMP24 *must* use stub/veneer to transition to Thumb */
+
+            /* Stubs *may* be used for PC24, CALL and JUMP24
+             *             or THM_CALL, THM_JUMP24, and THM_JUMP19
+             *       and the target is STT_FUNC
+             *                      or in a different section
+             */
+            S = S + A; A = 0;
+            int32_t V = ((S + A) | T) - P;
+            if(!is_int32(26, V)) { /* overflow */
+                // [Note PC bias]
+                // From the ELF for the ARM Architecture documentation:
+                // > 4.6.1.1 Addends and PC-bias compensation
+                // > A binary file may use REL or RELA relocations or a mixture of the two
+                // > (but multiple relocations for the same address must use only one type).
+                // > If the relocation is pc-relative then compensation for the PC bias (the
+                // > PC value is 8 bytes ahead of the executing instruction in ARM state and
+                // > 4 bytes in Thumb state) must be encoded in the relocation by the object
+                // > producer.
+                int32_t bias = 8;
+
+                S += bias;
+                /* try to locate an existing stub for this target */
+                if(find_stub(section, symbol, &S)) {
+                    /* didn't find any. Need to create one */
+                    if(make_stub(section, symbol, &S)) {
+                        abort(/* failed to create stub */);
+                    }
+                }
+                S -= bias;
+
+                V = ((S + A) | T) - P;
+                assert(is_int32(26, V)); /* X in range */
+            }
+            return V;
+        }
+        case ARM_GOT_PREL: {
+            assert(GOT_S);
+            return GOT_S + A - P;
+        }
+        default: {
+            abort(/* not supported */);
+        }
+    }
+
+}
+
 bool
 relocate_object_code_arm(ObjectCode * oc) {
     // do REL relocations first. Then RelA
@@ -155,107 +252,11 @@ relocate_object_code_arm(ObjectCode * oc) {
 
             assert(symbol != NULL);
 
-            /* Position where something is relocated */
-            addr_t P     = targetSection->start + rel->r_offset;
-            /* Address of the symbol */
-            addr_t S     =  symbol->addr;
-            /* GOT slot for the symbol */
-            addr_t GOT_S = symbol->got_addr;
+            /* decode implicit addend */
+            int32_t addend = decodeAddend_arm(targetSection, rel);
 
-            assert(S);
-            assert(P);
-
-            /* thumb mode? */
-            /* TODO: read thumb mode. We currently set it to off */
-            uint32_t T = 0;
-
-            unsigned type = ELF32_R_TYPE(rel->r_info);
-
-            switch(type) {
-                case ARM_NONE: {
-                    abort(/* not supported */);
-                }
-                case ARM_PC24: {
-                    /* type: deprecated, class: ARM, op: ((S + A) | T) - P */
-                    abort();
-                }
-                case ARM_ABS32: {
-                    /* type: static, class: data, op: (S + A) | T */
-                    int32_t A = decodeAddend_arm(targetSection, rel);
-                    int32_t V = (S + A) | T;
-                    encodeAddend_arm(targetSection, rel, V);
-                    break;
-                }
-                case ARM_REL32: {
-                    /* type: static, class: data, op: ((S + A) | T) - P */
-                    int32_t A = decodeAddend_arm(targetSection, rel);
-                    int32_t V = ((S + A) | T) - P;
-                    encodeAddend_arm(targetSection, rel, V);
-                    break;
-                }
-                    // case ARM_LDR_PC_G0:
-                    // case ARM_ABS16:
-                    // case ARM_ABS12:
-                    // case ARM_PLT32: /* deprecated */
-                case ARM_CALL:
-                case ARM_JUMP24: {
-                    /* type: static, class: arm, op: ((S + A) | T) - P */
-                    /* CALL *may* change to BLX when targeting Thumb        */
-                    /* JUMP24 *must* use stub/veneer to transition to Thumb */
-
-                    /* Stubs *may* be used for PC24, CALL and JUMP24
-                     *             or THM_CALL, THM_JUMP24, and THM_JUMP19
-                     *       and the target is STT_FUNC
-                     *                      or in a different section
-                     */
-                    int32_t A = decodeAddend_arm(targetSection, rel);
-                    S = S + A; A = 0;
-                    int32_t V = ((S + A) | T) - P;
-                    if(!is_int32(26, V)) { /* overflow */
-                        // [Note PC bias]
-                        // From the ELF for the ARM Architecture documentation:
-                        // > 4.6.1.1 Addends and PC-bias compensation
-                        // > A binary file may use REL or RELA relocations or a mixture of the two
-                        // > (but multiple relocations for the same address must use only one type).
-                        // > If the relocation is pc-relative then compensation for the PC bias (the
-                        // > PC value is 8 bytes ahead of the executing instruction in ARM state and
-                        // > 4 bytes in Thumb state) must be encoded in the relocation by the object
-                        // > producer.
-                        int32_t bias = 8;
-
-                        S += bias;
-                        /* try to locate an existing stub for this target */
-                        if(find_stub(targetSection, symbol, &S)) {
-                            /* didn't find any. Need to create one */
-                            if(make_stub(targetSection, symbol, &S)) {
-                                abort(/* failed to create stub */);
-                            }
-                        }
-                        S -= bias;
-
-                        V = ((S + A) | T) - P;
-                        assert(is_int32(26, V)); /* X in range */
-                    }
-                    encodeAddend_arm(targetSection, rel, V);
-                    break;
-                }
-                case ARM_PREL31: {
-                    int32_t A = decodeAddend_arm(targetSection, rel);
-                    int32_t V = ((S + A) | T) - P;
-                    encodeAddend_arm(targetSection, rel, V);
-                    break;
-                }
-                case ARM_GOT_PREL: {
-                    assert(GOT_S);
-                    int32_t A = decodeAddend_arm(targetSection, rel);
-                    int32_t V = GOT_S + A - P;
-                    encodeAddend_arm(targetSection, rel, V);
-                    break;
-                }
-                default: {
-                    return EXIT_FAILURE;
-                }
-            }
+            addend = compute_addend(targetSection, rel, symbol, addend);
+            encodeAddend_arm(targetSection, rel, addend);
         }
     }
     for(ElfRelocationATable *relaTab = oc->info->relaTable;
@@ -264,30 +265,25 @@ relocate_object_code_arm(ObjectCode * oc) {
         if (SECTIONKIND_OTHER == oc->sections[relaTab->targetSectionIndex].kind)
             continue;
 
-//        Section *targetSection = &oc->sections[relaTab->targetSectionIndex];
+        Section *targetSection = &oc->sections[relaTab->targetSectionIndex];
 
         for(unsigned i=0; i < relaTab->n_relocations; i++) {
 
             ElfRela *rel = &relaTab->relocations[i];
 
-//            ElfSymbol *symbol =
-//                    find_symbol(oc,
-//                                relaTab->sectionHeader->sh_link,
-//                                ELF32_R_SYM(rel->r_info));
-//
-//            assert(symbol != NULL);
-//
-//            /* Position where something is relocated */
-//            addr_t P     = targetSection->start + rel->r_offset;
-//            /* Address of the symbol */
-//            addr_t S     = symbol->addr;
-//            /* GOT slot for the symbol */
-//            addr_t GOT_S = symbol->got_addr;
+            ElfSymbol *symbol =
+                    find_symbol(oc,
+                                relaTab->sectionHeader->sh_link,
+                                ELF32_R_SYM(rel->r_info));
 
-            switch(ELF32_R_TYPE(rel->r_info)) {
-                default:
-                    return EXIT_FAILURE;
-            }
+            assert(symbol != NULL);
+
+            /* take explicit addend */
+            int32_t addend = rel->r_addend;
+
+            addend = compute_addend(targetSection, (ElfRel*)rel,
+                                    symbol, addend);
+            encodeAddend_arm(targetSection, (ElfRel*)rel, addend);
         }
     }
     return EXIT_SUCCESS;
